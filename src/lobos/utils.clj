@@ -9,11 +9,9 @@
 (ns lobos.utils
   "Helpers used in unrelated namespaces."
   (:refer-clojure :exclude [defonce replace])
-  (:use (clojure [string :only [lower-case
-                                replace
-                                upper-case]]
-                 [walk :only [postwalk]])
-        (clojure.java [io :only [file]]))
+  (:require [clojure.string :refer [lower-case replace upper-case]]
+            [clojure.walk :refer [postwalk]]
+            [clojure.java.io :refer [file]])
   (:import java.io.File))
 
 (defn join [separator & coll]

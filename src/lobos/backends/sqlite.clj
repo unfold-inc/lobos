@@ -9,8 +9,12 @@
 (ns lobos.backends.sqlite
   "Compiler implementation for SQLite."
   (:refer-clojure :exclude [compile defonce])
-  (:require (lobos [schema :as schema]))
-  (:use (lobos analyzer compiler connectivity internal metadata utils))
+  (:require (lobos [analyzer :refer :all]
+                   [compiler :refer :all]
+                   [schema :as schema]
+                   [internal :refer :all]
+                   [metadata :refer :all]
+                   [utils :refer :all]))
   (:import (lobos.ast AlterTableStatement
                       AutoIncClause
                       CreateSchemaStatement
@@ -149,9 +153,8 @@
              #(schema/build-drop-statement % :cascade db-spec)
              #(schema/table %)
              :name)
-       (with-connection db-spec
-         (raw-query
-          (format "select name from sqlite_master where type <> 'index';")))))
+       (raw-query
+        (format "select name from sqlite_master where type <> 'index';"))))
 
 (defmethod compile [:sqlite DropStatement]
   [statement]

@@ -8,7 +8,7 @@
 
 (ns lobos.ast
   "Abstract SQL syntax tree for the DDL part of the language."
-  (:use clojure.template)
+  (:require [clojure.template :refer :all])
   (:import (java.io Writer)))
 
 ;; -----------------------------------------------------------------------------

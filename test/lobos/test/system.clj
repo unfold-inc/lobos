@@ -8,7 +8,7 @@
 
 (ns lobos.test.system
   (:refer-clojure :exclude [compile conj! disj! distinct drop sort take])
-  (:require (clojure.java.jdbc [deprecated :as sql])
+  (:require [clojure.java.jdbc :as sql]
             (lobos [compiler :as compiler]
                    [connectivity :as conn]))
   (:use clojure.test
@@ -58,37 +58,46 @@
 
 (def-db-test test-check-constraint
   (when-not (= *db* :mysql)
-    (sql/with-connection (conn/get-db-spec *db*)
-      (is (thrown? Exception
-                   (sql/insert-records (table :users)
-                                       {(identifier :name) "x"}))
-          "An exception should have been thrown because of a check constraint")
-      (is (sql/insert-records (table :users)
-                              {(identifier :name) "foo"})
-          "The insert statement should not throw an exception"))))
+    (is (thrown? Exception
+                 (sql/insert!
+                  (conn/get-db-spec *db*)
+                  (table :users)
+                  {(identifier :name) "x"}))
+        "An exception should have been thrown because of a check constraint")
+    (is (sql/insert!
+         (conn/get-db-spec *db*)
+         (table :users)
+         {(identifier :name) "foo"})
+        "The insert statement should not throw an exception")))
 
 (def-db-test test-unique-constraint
-  (sql/with-connection (conn/get-db-spec *db*)
-    (sql/insert-records (table :users) {(identifier :name) "foo"})
-    (is (thrown? Exception
-                 (sql/insert-records (table :users)
-                                     {(identifier :name) "foo"}))
+  (sql/insert! (conn/get-db-spec *db*)
+               (table :users)
+               {(identifier :name) "foo"})
+  (is (thrown? Exception
+               (sql/insert! (conn/get-db-spec *db*)
+                            (table :users)
+                            {(identifier :name) "foo"}))
         "An exception should have been thrown because of an unique constraint")
-    (is (sql/insert-records (table :users)
-                            {(identifier :name) "bar"})
-        "The insert statement should not throw an exception")))
+  (is (sql/insert! (conn/get-db-spec *db*)
+                   (table :users)
+                   {(identifier :name) "bar"})
+      "The insert statement should not throw an exception"))
 
 ;;; Using hardcoded id is a bad idea!
 (def-db-test test-foreign-key-constraint
   (when-not (= *db* :sqlite)
-    (sql/with-connection (conn/get-db-spec *db*)
-      (sql/insert-records (table :users) {(identifier :name) "foo"})
-      (is (thrown? Exception
-                   (sql/insert-records (table :posts)
-                                       {(identifier :title) "foo"
-                                        (identifier :user_id) 2}))
-          "An exception should have been thrown because of a foreign key constraint")
-      (is (sql/insert-records (table :posts)
+    (sql/insert! (conn/get-db-spec *db*)
+                 (table :users)
+                 {(identifier :name) "foo"})
+    (is (thrown? Exception
+                 (sql/insert! (conn/get-db-spec *db*)
+                              (table :posts)
                               {(identifier :title) "foo"
-                               (identifier :user_id) 1})
-          "The insert statement should not throw an exception"))))
+                               (identifier :user_id) 2}))
+        "An exception should have been thrown because of a foreign key constraint")
+    (is (sql/insert! (conn/get-db-spec *db*)
+                     (table :posts)
+                     {(identifier :title) "foo"
+                      (identifier :user_id) 1})
+        "The insert statement should not throw an exception")))

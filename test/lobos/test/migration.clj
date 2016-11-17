@@ -8,13 +8,14 @@
 
 (ns lobos.test.migration
   (:refer-clojure :exclude [complement create alter drop])
-  (:require (lobos [connectivity :as conn]
-                   [schema :as schema]))
-  (:use (clojure.java [io :only [delete-file]])
-        clojure.test
-        (lobos [internal :only [query]]
-               migration
-               test)))
+  (:require [clojure.java.io :refer [delete-file]]
+            [clojure.java.jdbc :as jdbc]
+            [clojure.test :refer :all]
+            (lobos [connectivity :as conn]
+                   [internal :refer [query]]
+                   [migration :refer :all]
+                   [schema :as schema]
+                   [test :refer :all])))
 
 ;;;; Fixtures
 
@@ -27,7 +28,8 @@
 
 (use-fixtures :once
   remove-tmp-files-fixture
-  with-config-file-global-connection-fixture)
+  with-config-file-global-connection-fixture
+  )
 
 ;;;; Tests
 
@@ -135,10 +137,9 @@
 
 (defmacro with-migrations-table [& body]
   `(binding [*db* h2-spec]
-     (conn/with-connection *db*
-       (with-schema [~'lobos :lobos]
-         (create-migrations-table *db* :lobos)
-         ~@body))))
+     (with-schema [~'lobos :lobos]
+       (create-migrations-table *db* :lobos)
+       ~@body)))
 
 (deftest test-create-migrations-table
   (with-migrations-table
@@ -165,7 +166,8 @@
         "Should delete a migration entry named 'foo'")
     (delete-migrations *db* :lobos 'bar 'baz)
     (is (empty? (query *db* :lobos :lobos_migrations))
-        "Should delete all migration entries")))
+        "Should delete all migration entries")
+    ))
 
 (deftest test-record
   (delete-file *stash-file* true)
@@ -213,7 +215,7 @@
     (delete-file (migrations-file) true)
     (doseq [n [:foo :bar :baz]]
       (generate-migration* *db* :lobos (symbol (name n)) nil
-                           `[(~'create (~'table ~n (~'integer ~n)))]))
+                           `[(~'create ~*db* (~'table ~n (~'integer ~n)))]))
     (delete-migrations *db* :lobos 'foo 'bar 'baz)
     (is (= (pending-migrations *db* :lobos) (list "foo" "bar" "baz"))
         "Should return a list containing 'foo' 'bar' and 'baz'")
@@ -228,12 +230,15 @@
         "Should return a list containing 'bar'")
     (do-migrations *db* :lobos :down '[foo baz] true)
     (is (= (pending-migrations *db* :lobos) (list "foo" "bar" "baz"))
-        "Should return a list containing 'foo' 'bar' and 'baz'")))
+        "Should return a list containing 'foo' 'bar' and 'baz'")
+    ))
 
 (deftest test-generate-migration*
   (with-migrations-table
+    (println "test.migration/test-generate-migration* start")
     (delete-file (migrations-file) true)
     (generate-migration* *db* :lobos 'foo nil [])
+    (println "test.migration/test-generate-migration* finished generating-migration* :lobos")
     (is (empty? (query-migrations-table *db* :lobos))
         "Should return an empty list")
     (generate-migration* *db* :lobos 'bar nil '[(println "up")])

@@ -8,10 +8,10 @@
 
 (ns lobos.connectivity
   (:refer-clojure :exclude [defonce])
-  (:require [clojure.java.jdbc.deprecated :as sqlint]))
+  (:require [clojure.java.jdbc :as sqlint]))
 
-(in-ns 'clojure.java.jdbc.deprecated)
-(let [old *db*] (def ^{:private false :dynamic true} *db* old))
-(let [old get-connection] (def get-connection (fn [& args] (apply old args))))
-(def find-connection* find-connection)
-(def connection* connection)
+;; (in-ns 'clojure.java.jdbc)
+;; (let [old *db*] (def ^{:private false :dynamic true} *db* old))
+;; (let [old get-connection] (def get-connection (fn [& args] (apply old args))))
+;; (def find-connection* find-connection)
+;; (def connection* connection)

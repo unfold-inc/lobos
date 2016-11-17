@@ -9,9 +9,13 @@
 (ns lobos.backends.h2
   "Compiler implementation for H2."
   (:refer-clojure :exclude [compile defonce])
-  (:require (lobos [schema :as schema]))
-  (:use (clojure [string :only [split]])
-        (lobos analyzer compiler connectivity internal metadata utils))
+  (:require [clojure.string :refer [split]]
+            (lobos [analyzer :refer :all]
+                   [compiler :refer :all]
+                   [internal :refer :all]
+                   [metadata :refer :all]
+                   [schema :as schema]
+                   [utils :refer :all]))
   (:import (lobos.ast AlterRenameAction
                       AutoIncClause
                       CreateSchemaStatement

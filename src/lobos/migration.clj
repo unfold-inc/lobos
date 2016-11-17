@@ -9,17 +9,17 @@
 (ns lobos.migration
   "Migrations support."
   (:refer-clojure :exclude [complement defonce replace])
-  (:require (clojure.java.jdbc [deprecated :as sql])
+  (:require [clojure.pprint :refer :all]
+            [clojure.string :as string]
+            [clojure.tools.macro :refer [name-with-attributes]]
+            [clojure.walk :refer [postwalk]]
+            [clojure.java.io :refer [file writer]]
+            [clojure.java.jdbc :as sql]
             (lobos [analyzer :as analyzer]
                    [compiler :as compiler]
-                   [connectivity :as conn]
-                   [schema :as schema]))
-  (:use (clojure [walk :only [postwalk]])
-        (clojure.java [io :only [file writer]])
-        (clojure.tools [macro :only [name-with-attributes]])
-        (clojure pprint)
-        lobos.internal
-        lobos.utils)
+                   [internal :as internal]
+                   [schema :as schema]
+                   [utils :refer :all]))
   (:import (java.sql Timestamp)
            (java.util Date)))
 
@@ -193,7 +193,7 @@
 
 (defn create-migrations-table
   [db-spec sname]
-  (autorequire-backend db-spec)
+  (internal/autorequire-backend db-spec)
   (when-not (-> (analyzer/analyze-schema db-spec sname)
                 :tables
                 *migrations-table*)
@@ -201,23 +201,31 @@
                                (schema/varchar :name 255))
           db-spec (assoc db-spec :schema sname)
           create-stmt (schema/build-create-statement action db-spec)]
-      (execute create-stmt db-spec))))
+      (internal/execute create-stmt db-spec))))
 
 (defn insert-migrations
   [db-spec sname & names]
-  (when-not (empty? names)
-    (sql/with-connection db-spec
-      (apply
-       sql/insert-rows
-       (compiler/as-identifier db-spec *migrations-table* sname)
-       (map (comp vector str) names)))))
+  (when (seq names)
+    (sql/insert-multi!
+     db-spec
+     (compiler/as-identifier db-spec *migrations-table* sname)
+     (mapv (fn [n] {:name (str n)}) names))))
 
 (defn delete-migrations
   [db-spec sname & names]
   (when-not (empty? names)
-    (conn/with-connection db-spec
-      (delete db-spec sname *migrations-table*
-              (in :name (vec (map str names)))))))
+    (let [table-name (compiler/as-identifier db-spec
+                                             *migrations-table*
+                                             sname)
+          params (mapv str names)]
+      (sql/execute! db-spec
+                    [(str "DELETE FROM "
+                          table-name
+                          " WHERE name IN ("
+                          (string/join "," (repeat (count names) "?"))
+                          ")")
+                     (vec params)]
+                    {:multi? true}))))
 
 ;; ### Commands Helpers
 
@@ -230,8 +238,7 @@
 
 (defn query-migrations-table
   [db-spec sname]
-  (conn/with-connection db-spec
-    (map :name (query db-spec sname *migrations-table*))))
+  (map :name (internal/query db-spec sname *migrations-table*)))
 
 (defn pending-migrations [db-spec sname]
   (exclude (query-migrations-table db-spec

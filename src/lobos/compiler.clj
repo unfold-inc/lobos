@@ -126,7 +126,7 @@
   (let [{:keys [db-spec name qualifiers]} identifier]
     (join* \. (->> (concat qualifiers [name])
                    (filter identity)
-                   (map #(when % (as-str \" % \")))))))
+                   (map #(when % (as-str \" % \" )))))))
 
 (defmethod compile [::standard FunctionExpression]
   [function]

@@ -9,41 +9,50 @@
 (ns lobos.connectivity
   "A set of connectivity functions."
   (:refer-clojure :exclude [defonce])
-  (:use lobos.utils))
+  (:require [clojure.string :as string]
+            [clojure.java.jdbc :as jdbc]
+            [lobos.schema :as schema]
+            [lobos.utils :refer :all]))
 
-(try
-  (require 'lobos.connectivity.jdbc-1)
-  (catch Exception e
-    (try
-      (require 'lobos.connectivity.jdbc-2)
-      (catch Exception e
-        (do
-          (ns-unalias 'lobos.connectivity 'sqlint)
-          (require 'lobos.connectivity.jdbc-3))))))
+;; (try
+;;   (require 'lobos.connectivity.jdbc-1)
+;;   (catch Exception e
+;;     (try
+;;       (require 'lobos.connectivity.jdbc-2)
+;;       (catch Exception e
+;;         (do
+;;           (ns-unalias 'lobos.connectivity 'sqlint)
+;;           (require 'lobos.connectivity.jdbc-3))))))
 
 ;; -----------------------------------------------------------------------------
-
 ;; ## Globals
-
 (defonce global-connections
   (atom {})
   "This atom contains a map of all opened global connections.")
 
 ;; -----------------------------------------------------------------------------
-
 ;; ## Helpers
+(def find-connection jdbc/db-find-connection)
+(def connection jdbc/get-connection)
 
-(def find-connection sqlint/find-connection*)
+(defonce db-spec-atom (atom nil))
+(defn jdbc-db-spec [] @db-spec-atom)
 
-(def connection sqlint/connection*)
-
-(defn jdbc-db-spec [] (:db-spec sqlint/*db*))
+(defn db-spec? [m]
+  (and (map? m)
+       (not (string/blank? (:classname m)))
+       (not (string/blank? (:subprotocol m)))
+       (not (string/blank? (:subname m)))))
 
 (defn get-db-spec
   "Returns the associated db-spec or itself. *For internal use*."
   [& [connection-info]]
   (let [connection-info (or connection-info :default-connection)]
-    (or (jdbc-db-spec)
+    (or (when (schema/schema? connection-info)
+          (get-in connection-info [:options :db-spec]))
+        (when (db-spec? connection-info)
+          connection-info)
+        (jdbc-db-spec)
         (if (keyword? connection-info)
           (-> @global-connections connection-info :db-spec)
           connection-info))))
@@ -53,7 +62,7 @@
   namespace. Dissociates the `:schema` key to prevent conflict."
   [db-spec]
   (let [db-spec (dissoc db-spec :schema)]
-    (sqlint/get-connection db-spec)))
+    (jdbc/get-connection db-spec)))
 
 (defn connection?
   "Checks if the given argument is a named connection or a db-spec. As a
@@ -63,7 +72,6 @@
       (map? cnx)))
 
 ;; -----------------------------------------------------------------------------
-
 ;; ## Global Connections
 
 (defn close-global
@@ -86,6 +94,7 @@
 
 (defn- open-global* [connection-name db-spec]
   (let [cnx (*get-cnx* db-spec)]
+    (swap! db-spec-atom db-spec)
     (when-let [ac (-> db-spec :auto-commit)]
       (.setAutoCommit cnx ac))
     (swap! global-connections assoc
@@ -120,78 +129,81 @@
 
 ;; ## With Connections
 
-(defn with-named-connection
+(defn- with-named-connection
   "Evaluates func in the context of a named global connection to a
   database."
   [connection-name func]
   (io!
    (if-let [cnx (@global-connections connection-name)]
-     (binding [sqlint/*db*
-               (assoc sqlint/*db*
-                 :connection (:connection cnx)
-                 :level 0
-                 :rollback (atom false)
-                 :db-spec (:db-spec cnx))]
-       (func))
+     ;; (binding [sqlint/*db*
+     ;;           (assoc sqlint/*db*
+     ;;             :connection (:connection cnx)
+     ;;             :level 0
+     ;;             :rollback (atom false)
+     ;;             :db-spec (:db-spec cnx))]
+     ;;   (func))
+     nil
      (throw
       (Exception.
        (format "No such global connection currently open: %s, only got %s"
                connection-name
                (vec (keys @global-connections))))))))
 
-(defn with-spec-connection
+(defn- with-spec-connection
   "Evaluates func in the context of a new connection to a database then
   closes the connection."
   [db-spec func]
-  (with-open [cnx (*get-cnx* db-spec)]
-    (binding [sqlint/*db* (assoc sqlint/*db*
-                            :connection cnx
-                            :level 0
-                            :rollback (atom false)
-                            :db-spec db-spec)]
-      (when-let [ac (-> db-spec :auto-commit)]
-        (.setAutoCommit cnx ac))
-      (func))))
+  (jdbc/db-do-commands db-spec (func)))
+  ;; (with-open [cnx (*get-cnx* db-spec)]
+  ;;   (binding [sqlint/*db* (assoc sqlint/*db*
+  ;;                           :connection cnx
+  ;;                           :level 0
+  ;;                           :rollback (atom false)
+  ;;                           :db-spec db-spec)]
+  ;;     (when-let [ac (-> db-spec :auto-commit)]
+  ;;       (.setAutoCommit cnx ac))
+  ;;     (func))))
+  ;;   nil
+  ;;   ))
 
-(defmacro with-connection
-  "Evaluates body in the context of a new connection or a named global
-  connection to a database then closes the connection if it's a new
-  one. The connection-info parameter can be a keyword denoting a global
-  connection or a map containing values for one of the following
-  parameter sets:
+;; (defmacro with-connection
+;;   "Evaluates body in the context of a new connection or a named global
+;;   connection to a database then closes the connection if it's a new
+;;   one. The connection-info parameter can be a keyword denoting a global
+;;   connection or a map containing values for one of the following
+;;   parameter sets:
 
-   *  Factory:
-     * `:factory` (required) a function of one argument, a map of params
-     * (others) (optional) passed to the factory function in a map
+;;    *  Factory:
+;;      * `:factory` (required) a function of one argument, a map of params
+;;      * (others) (optional) passed to the factory function in a map
 
-   * DriverManager:
-     * `:classname` (required) a String, the jdbc driver class name
-     * `:subprotocol` (required) a String, the jdbc subprotocol
-     * `:subname` (required) a String, the jdbc subname
-     * (others) (optional) passed to the driver as properties.
+;;    * DriverManager:
+;;      * `:classname` (required) a String, the jdbc driver class name
+;;      * `:subprotocol` (required) a String, the jdbc subprotocol
+;;      * `:subname` (required) a String, the jdbc subname
+;;      * (others) (optional) passed to the driver as properties.
 
-   * DataSource:
-     * `:datasource` (required) a javax.sql.DataSource
-     * `:username` (optional) a String
-     * `:password` (optional) a String, required if :username is supplied
+;;    * DataSource:
+;;      * `:datasource` (required) a javax.sql.DataSource
+;;      * `:username` (optional) a String
+;;      * `:password` (optional) a String, required if :username is supplied
 
-   * JNDI:
-     * `:name` (required) a String or javax.naming.Name
-     * `:environment` (optional) a java.util.Map
+;;    * JNDI:
+;;      * `:name` (required) a String or javax.naming.Name
+;;      * `:environment` (optional) a java.util.Map
 
-   * Options (for ClojureQL):
-     * `:auto-commit` (optional) a Boolean
-     * `:fetch-size`  (optional) an integer"
-  [connection-info & body]
-  `(let [connection-info# (or ~connection-info :default-connection)]
-     ((if (keyword? connection-info#)
-        with-named-connection
-        with-spec-connection) connection-info# (fn [] ~@body))))
+;;    * Options (for ClojureQL):
+;;      * `:auto-commit` (optional) a Boolean
+;;      * `:fetch-size`  (optional) an integer"
+;;   [connection-info & body]
+;;   `(let [connection-info# (or ~connection-info :default-connection)]
+;;      ((if (keyword? connection-info#)
+;;         with-named-connection
+;;         with-spec-connection) connection-info# (fn [] ~@body))))
 
 (defn default-connection
   "Returns the default connection if it exists."
   []
   (try
-    (with-named-connection :default-connection
-      connection)
+    (:connection (:default-connection @global-connections))
     (catch Exception _ nil)))

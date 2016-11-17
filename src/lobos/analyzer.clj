@@ -9,12 +9,12 @@
 (ns lobos.analyzer
   "Analyze a database's meta-data to contruct an abstract schema."
   (:refer-clojure :exclude [defonce replace])
-  (:require (lobos [connectivity :as conn]
-                   [schema :as schema]))
-  (:use (clojure [string :only [replace]])
-        lobos.internal
-        lobos.metadata
-        lobos.utils)
+  (:require [clojure.string :as string :refer [replace]]
+            (lobos ;; [connectivity :as conn]
+             [internal :as internal :refer :all]
+             [metadata :as metadata] ;;  :refer :all]
+             [schema :as schema]
+             [utils :refer :all]))
   (:import (java.sql DatabaseMetaData)
            (lobos.schema Column
                          DataType
@@ -43,7 +43,7 @@
   (fn [dispatch-val & args]
     (if (vector? dispatch-val)
       dispatch-val
-      [(as-keyword (.getDatabaseProductName (db-meta)))
+      [(as-keyword (.getDatabaseProductName (metadata/db-meta)))
        dispatch-val]))
   :hierarchy db-hierarchy)
 
@@ -71,7 +71,7 @@
 
 (defmethod analyze [::standard UniqueConstraint]
   [_ sname tname cname index-meta]
-  (let [pkeys (primary-keys sname tname)]
+  (let [pkeys (metadata/primary-keys sname tname)]
     (UniqueConstraint.
      (keyword cname)
      (if (pkeys (keyword cname))
@@ -112,14 +112,14 @@
   [_ sname tname]
   (concat
    (map (fn [[cname meta]] (analyze UniqueConstraint sname tname cname meta))
-        (indexes-meta sname tname #(let [nu (:non_unique %)]
-                                     (or (false? nu) (= nu 0)))))
+        (metadata/indexes-meta sname tname #(let [nu (:non_unique %)]
+                                              (or (false? nu) (= nu 0)))))
    (map (fn [[cname meta]] (analyze ForeignKeyConstraint cname meta))
-        (references-meta sname tname))))
+        (metadata/references-meta sname tname))))
 
 (defmethod analyze [::standard Index]
   [_ sname tname iname index-meta]
-  (let [pkeys (primary-keys sname tname)]
+  (let [pkeys (metadata/primary-keys sname tname)]
     (Index.
      (keyword iname)
      tname
@@ -131,7 +131,7 @@
 (defmethod analyze [::standard :indexes]
   [_ sname tname]
   (map (fn [[iname meta]] (analyze Index sname tname iname meta))
-       (indexes-meta sname tname)))
+       (metadata/indexes-meta sname tname)))
 
 (defn analyze-data-type-args
   "Returns a vector containing the data type arguments for the given
@@ -172,7 +172,7 @@
   (schema/table* tname
                  (into {} (map #(let [c (analyze Column %)]
                                   [(:cname c) c])
-                               (columns-meta sname tname)))
+                               (metadata/columns-meta sname tname)))
                  (into {} (map #(vector (:cname %) %)
                                (analyze :constraints sname tname)))
                  (into {} (map #(vector (:iname %) %)
@@ -180,21 +180,23 @@
 
 (defmethod analyze [::standard Schema]
   [_ sname]
-  (apply schema/schema sname {:db-spec (db-meta-spec)}
+  (apply schema/schema sname {:db-spec (metadata/db-meta-spec)}
          (map #(analyze Table sname %)
-              (tables sname))))
+              (metadata/tables sname))))
 
 (defn analyze-schema
   [& args]
   {:arglists '([connection-info? sname?])}
-  (let [[db-spec sname _] (optional-cnx-and-sname args)]
-    (with-db-meta db-spec
-      (autorequire-backend db-spec)
+  (let [[db-spec sname _] (internal/optional-cnx-and-sname args)]
+    (metadata/with-db-meta db-spec
+      (internal/autorequire-backend db-spec)
       (let [sname (or (keyword sname)
-                      (default-schema)
-                      (first _))]
-        (if-let [schemas (schemas)]
+                      (metadata/default-schema)
+                      )]
+        (if-let [schemas (metadata/schemas)]
           (when (or (nil? sname)
                     ((set schemas) sname))
             (analyze Schema sname))
-          (analyze Schema sname))))))
+          (analyze Schema sname))
+
+        ))))

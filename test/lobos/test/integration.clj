@@ -9,9 +9,20 @@
 (ns lobos.test.integration
   (:refer-clojure :exclude [alter compile defonce drop
                             bigint boolean char double float time])
-  (:use clojure.test
-        (lobos analyzer connectivity core metadata schema test utils)
-        (lobos.backends h2 mysql postgresql sqlite sqlserver))
+  (:require [clojure.test :refer :all]
+            [clojure.java.jdbc :as jdbc]
+            (lobos [analyzer :refer :all]
+                   [connectivity :refer :all]
+                   [core :refer :all]
+                   [metadata :refer :all]
+                   [schema :refer :all]
+                   [test :refer :all]
+                   [utils :refer :all])
+            (lobos.backends [h2 :refer :all]
+                            [mysql :refer :all]
+                            [postgresql :refer :all]
+                            [sqlite :refer :all]
+                            [sqlserver :refer :all]))
   (:import (lobos.schema ForeignKeyConstraint
                          UniqueConstraint)))
 
@@ -19,21 +30,10 @@
 
 (use-fixtures :once
   remove-tmp-files-fixture
-  open-global-connections-fixture)
+  open-global-connections-fixture
+  )
 
 ;;;; Tests
-
-(deftest test-action-connectivity
-  (let [test-action
-        #(with-schema [lobos :lobos]
-           ;; cannot rely on creating just a schema as some dbms ignore that action
-           (create lobos (table :foo (integer :bar)))
-           (= (-> :lobos analyze-schema :tables :foo)
-              (table :foo (integer :bar))))]
-    (is (thrown? Exception (test-action))
-        "An exception should have been thrown because there are no connection")
-    (is (with-connection h2-spec (test-action))
-        "No exception should have been thrown when executing an action")))
 
 (def-db-test test-create-and-drop-schema
   (when (with-db-meta (get-db-spec *db*)
@@ -54,9 +54,12 @@
       (is (= (inspect-schema) lobos)
           "A schema named 'lobos' should have been created")
       (create lobos (table :foo (integer :bar)))
+
       (drop *db* lobos :cascade)
       (is (not= (inspect-schema :sname) :lobos)
-          "A schema named 'lobos' should have been dropped"))))
+          "A schema named 'lobos' should have been dropped")
+      )
+    ))
 
 (def-db-test test-create-and-drop-table
   (with-schema [lobos :lobos]
@@ -66,7 +69,8 @@
         "A table named 'foo' should have been created")
     (drop lobos (table :foo))
     (is (nil? (inspect-schema :tables :foo))
-        "A table named 'foo' should have been dropped")))
+        "A table named 'foo' should have been dropped")
+    ))
 
 (def-db-test test-create-and-drop-index
   (with-schema [lobos :lobos]

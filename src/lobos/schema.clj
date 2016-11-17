@@ -25,11 +25,11 @@
   definitons and the typed data definitions."
   (:refer-clojure :exclude [defonce replace
                             bigint boolean char double float time])
-  (:require (lobos [ast :as ast]))
-  (:use (clojure [walk   :only [postwalk]]
-                 [set    :only [union]]
-                 [string :only [replace]])
-        lobos.utils))
+  (:require [clojure.walk :refer [postwalk]]
+            [clojure.set :refer [union]]
+            [clojure.string :refer [replace]]
+            (lobos [ast :as ast]
+                   [utils :refer :all])))
 
 (ast/import-all)
 

@@ -8,7 +8,8 @@
 
 (ns lobos.internal
   (:refer-clojure :exclude [defonce])
-  (:require (lobos [compiler :as compiler]
+  (:require [clojure.java.jdbc :as jdbc]
+            (lobos [compiler :as compiler]
                    [connectivity :as conn]
                    [metadata :as metadata]
                    [schema :as schema]))
@@ -38,11 +39,11 @@
 (defn- execute*
   "Execute the given SQL string or sequence of strings. Prints them if
   the `debug-level` is set to `:sql`."
-  [sql]
+  [db-conn sql]
   (doseq [sql-string (if (seq? sql) sql [sql])]
-    (when (= :sql @debug-level) (println sql-string))
-    (with-open [stmt (.createStatement (conn/connection))]
-      (.execute stmt sql-string))))
+    (when (= :sql @debug-level)
+      (println "execute* sql-string = " (pr-str sql-string)))
+    (jdbc/db-do-commands db-conn sql-string)))
 
 (defn execute
   "Executes the given statement(s) using the specified connection
@@ -55,14 +56,13 @@
                      [statements])
         db-spec (conn/get-db-spec connection-info)
         mode (compiler/compile (compiler/mode db-spec))]
-    (conn/with-connection connection-info
-      (autorequire-backend connection-info)
-      (when mode (execute* mode))
-      (doseq [statement statements]
-        (let [sql (if (string? statement)
-                           statement
-                           (compiler/compile statement))]
-          (when sql (execute* sql)))))) nil)
+    (autorequire-backend connection-info)
+    (when mode (execute* mode))
+    (doseq [statement statements]
+      (let [sql (if (string? statement)
+                  statement
+                  (compiler/compile statement))]
+        (when sql (execute* connection-info sql))))))
 
 ;; -----------------------------------------------------------------------------
 
@@ -75,7 +75,8 @@
                             (conn/connection? %))) args)
         args* args
         schema (when (schema/schema? cnx-or-schema) cnx-or-schema)
-        cnx (or (conn/find-connection)
+        cnx (or (when-let [db-spec (and (seq args) (first args))]
+                  (conn/find-connection db-spec))
                 (-> schema :options :db-spec)
                 (when-not schema cnx-or-schema)
                 :default-connection)
@@ -86,9 +87,11 @@
 
 (defn optional-cnx-and-sname [args]
   (let [[db-spec schema args] (optional-cnx-or-schema args)
-        [sname args] (conn/with-connection db-spec
-                       (optional #(or (nil? %)
-                                      ((set (metadata/schemas)) %)) args))
+        [sname args] (jdbc/with-db-connection [db-conn db-spec]
+                       (binding [metadata/*db-meta* (.getMetaData (:connection db-conn))]
+                         (optional #(or (nil? %)
+                                        ((set (metadata/schemas)) %))
+                                   args)))
         sname (or sname (:name schema))]
     [db-spec sname args]))
 
@@ -97,14 +100,13 @@
 ;; ## DML Helpers
 
 (defn raw-query [sql-string]
-  (with-open [stmt (.createStatement (conn/connection))]
-    (let [resultset (.executeQuery stmt sql-string)]
-      (when resultset
-        (doall (resultset-seq resultset))))))
+  {:pre [(string? sql-string)]}
+  (jdbc/query (conn/get-db-spec)
+              [sql-string]))
 
 (defn raw-update [sql-string]
-  (with-open [stmt (.createStatement (conn/connection))]
-    (.executeUpdate stmt sql-string)))
+  (jdbc/execute! (conn/get-db-spec)
+                 [sql-string]))
 
 (defn sql-from-where [db-spec stmt sname tname where-expr]
   (do
@@ -120,13 +122,13 @@
                (schema/build-definition where-expr db-spec)))))))
 
 (defmacro query [db-spec sname tname & [conditions]]
-  `(raw-query
+  `(jdbc/query ~db-spec
     (sql-from-where ~db-spec "select *" ~sname ~tname
                     (when-not ~(nil? conditions)
                       (schema/expression ~conditions)))))
 
 (defmacro delete [db-spec sname tname & [conditions]]
-  `(raw-update
-    (sql-from-where ~db-spec "delete" ~sname ~tname
+  `(let [foo# (sql-from-where ~db-spec "delete" ~sname ~tname
                     (when-not ~(nil? conditions)
-                      (schema/expression ~conditions)))))
+                      (schema/expression ~conditions)))]
+     (raw-update foo#)))

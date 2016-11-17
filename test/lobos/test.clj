@@ -16,11 +16,15 @@
 
 ;;;; DB connection specifications
 
+;; Need to include the ";DB_CLOSE_DELAY=-1", otherwise the content of
+;; the database is lost whenever the last connection is closed. See
+;; http://makble.com/using-h2-in-memory-database-in-clojure
 (def h2-spec
   {:classname   "org.h2.Driver"
    :subprotocol "h2"
-   :subname     "./lobos.h2"
-   :unsafe      true})
+   :subname     "./lobos.h2;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE"
+   :unsafe      true
+   })
 
 (def mysql-spec
   {:classname   "com.mysql.jdbc.Driver"
@@ -105,11 +109,12 @@
 (defmacro with-schema [[var-name sname] & body]
   `(let [db-spec# (get-db-spec *db*)]
      (try
-       (let [~var-name (schema ~sname {:db-spec db-spec#})]
+       (let [^lobos.schema.Schema ~var-name (schema ~sname {:db-spec db-spec#})]
          (create db-spec# ~var-name)
          ~@body)
        (finally (try (drop db-spec# (schema ~sname) :cascade)
-                     (catch Exception _#))))))
+                     (catch Throwable e# (println (.getMessage e#)))))
+       )))
 
 (defmacro inspect-schema [& keys]
   `(-> (analyze-schema *db* :lobos) ~@keys))
@@ -123,9 +128,10 @@
 
 (defn close-global-connections []
   (doseq [db (available-global-cnx)]
-    (close-global db)))
+    (close-global db))
+  )
 
-;;;; Fixtures
+;;;; Fixtures 
 
 (def tmp-files-ext '(db sqlite3))
 

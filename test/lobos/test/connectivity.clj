@@ -7,8 +7,8 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns lobos.test.connectivity
-  (:use clojure.test
-        lobos.connectivity))
+  (:require [clojure.test :refer :all]
+            [lobos.connectivity :refer :all]))
 
 (def ^{:dynamic true} *cnx*)
 
@@ -47,40 +47,6 @@
                (close-global :foo))
       "Closing an inexistant global connection"))
 
-(deftest test-with-named-connection
-  (is (thrown? Exception
-               (with-named-connection :test
-                 #(identity)))
-      "With inexistant named connection")
-  (open-global :test {})
-  (is (= (with-named-connection :test
-           #(connection))
-         *cnx*)
-      "With existant named connection")
-  (close-global :test))
-
-(deftest test-with-spec-connection
-  (is (= (with-spec-connection {}
-           #(connection))
-         *cnx*)
-      "With connection specification"))
-
-(deftest test-with-connection
-  (is (= (with-connection {}
-           (connection))
-         *cnx*)
-      "With connection specification")
-  (is (thrown? Exception
-               (with-connection :test
-                 nil))
-      "With inexistant named connection")
-  (open-global :test {})
-  (is (= (with-connection :test
-           (connection))
-         *cnx*)
-      "With existant named connection")
-  (close-global :test))
-
 (deftest test-default-connection
   (open-global {})
   (is (= (default-connection)
@@ -89,9 +55,9 @@
   (close-global))
 
 (deftest test-get-db-spec
-  (is (= (get-db-spec {}) {})
+  (is (= {} (get-db-spec {}))
       "Get db-spec from db-spec")
   (open-global {})
-  (is (= (get-db-spec) {})
+  (is (= {} (get-db-spec))
       "Get db-spec from global connection")
   (close-global))

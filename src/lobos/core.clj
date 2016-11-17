@@ -19,17 +19,16 @@
    * [Lobos wiki](https://github.com/budu/lobos/wiki)"
   {:author "Nicolas Buduroi"}
   (:refer-clojure :exclude [alter defonce drop])
-  (:require (lobos [compiler :as compiler]
+  (:require [clojure.tools.macro :refer [name-with-attributes]]
+            [clojure.pprint :refer [pprint]]
+            (lobos [compiler :as compiler]
                    [connectivity :as conn]
+                   [internal :refer :all]
                    [migration :as mig]
-                   [schema :as schema]))
-  (:use (clojure.tools [macro :only [name-with-attributes]])
-        (clojure [pprint :only [pprint]])
-        lobos.internal
-        lobos.utils))
+                   [schema :as schema]
+                   [utils :refer :all])))
 
 ;; -----------------------------------------------------------------------------
-
 ;; ## Helpers
 
 (defmacro without-migration [& body]

@@ -8,7 +8,8 @@
 
 (ns lobos.metadata
   "Helpers to query the database's meta-data."
-  (:require (lobos [compiler :as compiler]
+  (:require [clojure.java.jdbc :as jdbc]
+            (lobos [compiler :as compiler]
                    [connectivity :as conn]
                    [schema :as schema]))
   (:import (java.sql DatabaseMetaData)))
@@ -23,12 +24,13 @@
 (defn db-meta
   "Returns the binded DatabaseMetaData object found in *db-meta* or get
   one from the default connection if not available."
+  ^java.sql.DatabaseMetaData
   []
-  (or (when (conn/connection)
-        (.getMetaData (conn/connection)))
-      *db-meta*
-      (conn/with-connection :default-connection
-        (.getMetaData (conn/connection)))))
+  (or *db-meta*
+      (when-let [connection (conn/default-connection)]
+        (.getMetaData (if (map? connection)
+                        (:connection connection)
+                        connection)))))
 
 (defn db-meta-spec
   []
@@ -39,12 +41,12 @@
 (defmacro with-db-meta
   "Evaluates body in the context of a new connection or a named global
   connection to a database then closes the connection while binding its
-  DatabaseMetaData object to *db-meta*."
-  [connection-info & body]
-  `(if ~connection-info
-     (conn/with-connection ~connection-info
-       (binding [*db-meta-spec* (conn/get-db-spec ~connection-info)
-                 *db-meta* (.getMetaData (conn/connection))]
+  `DatabaseMetaData` object to `*db-meta*`."
+  [db-spec & body]
+  `(if ~db-spec
+     (jdbc/with-db-connection [db-conn# ~db-spec]
+       (binding [*db-meta-spec* ~db-spec
+                 *db-meta* (.getMetaData (:connection db-conn#))]
          ~@body))
      (do ~@body)))
 
@@ -77,20 +79,29 @@
 ;; -----------------------------------------------------------------------------
 
 ;; ## Database Objects
+(defn- getter-db-meta [getter-kw]
+  (when-let [method (get {:catalogs (memfn getCatalogs)
+                          :schemas (memfn getSchemas)} getter-kw)]
+    (let [field (get {:catalogs :table_cat
+                      :schemas :table_schem} getter-kw)]
+      (->> (db-meta)
+           method
+           resultset-seq
+           doall
+           (map (comp keyword field))))))
 
 (defn catalogs
   "Returns a list of catalog names as keywords."
   []
-  (map #(-> % :table_cat keyword)
-       (doall (resultset-seq (.getCatalogs (db-meta))))))
+  (getter-db-meta :catalogs))
 
 (defn schemas
   "Returns a list of schema names as keywords."
   []
-  (cond (supports-schemas)
-        (map #(-> % :table_schem keyword)
-             (doall (resultset-seq (.getSchemas (db-meta)))))
-        (supports-catalogs) (catalogs)))
+  (cond
+    (supports-schemas) (getter-db-meta :schemas)
+    (supports-catalogs) (catalogs)
+    :else nil))
 
 (defn default-schema []
   (when (supports-schemas)
